@@ -1,6 +1,7 @@
 package relayto
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,17 +10,18 @@ import (
 	"os"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type Parameters struct {
-	UrlEndpoint    string
-	DatabaseName   string
-	CollectionName string
-	UserName       string
-	Password       string
+	UrlEndpoint          string
+	DatabaseName         string
+	CollectionName       string
+	UserName             string
+	Password             string
+	MessengerId          string
+	MessengerAccessToken string
 }
 
 func (parameters *Parameters) generateMongoUrl() string {
@@ -33,11 +35,13 @@ func (parameters *Parameters) generateMongoUrl() string {
 
 func loadParametersFromEnv() Parameters {
 	return Parameters{
-		UrlEndpoint:    os.Getenv("URL_ENDPOINT"),
-		DatabaseName:   os.Getenv("DATABASE_NAME"),
-		CollectionName: os.Getenv("COLLECTION_NAME"),
-		UserName:       os.Getenv("USERNAME"),
-		Password:       os.Getenv("PASSWORD"),
+		UrlEndpoint:          os.Getenv("URL_ENDPOINT"),
+		DatabaseName:         os.Getenv("DATABASE_NAME"),
+		CollectionName:       os.Getenv("COLLECTION_NAME"),
+		UserName:             os.Getenv("USERNAME"),
+		Password:             os.Getenv("PASSWORD"),
+		MessengerId:          os.Getenv("MESSENGER_ID"),
+		MessengerAccessToken: os.Getenv("MESSENGER_ACCESS_TOKEN"),
 	}
 }
 
@@ -51,9 +55,7 @@ type EntryResult struct {
 	Result string `json:"result"`
 }
 
-func insertEntry(entry *Entry) (*mongo.InsertOneResult, error) {
-	parameters := loadParametersFromEnv()
-
+func toMongoDB(parameters *Parameters, entry *Entry) (*mongo.InsertOneResult, error) {
 	client, err := mongo.NewClient(options.Client().ApplyURI(parameters.generateMongoUrl()))
 	if err != nil {
 		log.Println(err)
@@ -76,6 +78,62 @@ func insertEntry(entry *Entry) (*mongo.InsertOneResult, error) {
 		InsertOne(context.TODO(), entry)
 }
 
+const (
+	MESSAGING_TYPE_UPDATE = "UPDATE"
+	SUCCESSFUL            = "SUCCESSFUL"
+)
+
+type Payload struct {
+	MessagingType string    `json:"messaging_type"`
+	Recipient     Recipient `json:"recipient"`
+	Message       Message   `json:"message"`
+}
+type Recipient struct {
+	ID string `json:"id"`
+}
+type Message struct {
+	Text string `json:"text"`
+}
+
+func toMessenger(parameters *Parameters, entry *Entry) error {
+	data := Payload{
+		MessagingType: MESSAGING_TYPE_UPDATE,
+		Recipient: Recipient{
+			ID: parameters.MessengerId,
+		},
+		Message: Message{
+			Text: entry.Content,
+		},
+	}
+
+	payloadBytes, err := json.Marshal(data)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	body := bytes.NewReader(payloadBytes)
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("https://graph.facebook.com/v9.0/me/messages?access_token=%s", parameters.MessengerAccessToken),
+		body)
+
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	return nil
+}
+
 // RelayToHTTP is a HTTP cloud function
 func RelayToHTTP(w http.ResponseWriter, r *http.Request) {
 	var entry Entry
@@ -89,7 +147,10 @@ func RelayToHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := insertEntry(&entry)
+	parameters := loadParametersFromEnv()
+	log.Println(entry)
+	// result, err := toMongoDB(&parameters, &entry)
+	err := toMessenger(&parameters, &entry)
 	if err != nil {
 		json.NewEncoder(w).Encode(EntryResult{
 			Ok:     false,
@@ -101,6 +162,6 @@ func RelayToHTTP(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(EntryResult{
 		Ok:     true,
-		Result: fmt.Sprintf("%v", result.InsertedID.(primitive.ObjectID).Hex()),
+		Result: SUCCESSFUL,
 	})
 }

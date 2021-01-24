@@ -1,4 +1,4 @@
-module github.com/sweetim/ephemeral_entry
+module github.com/sweetim/relay-to
 
 go 1.13
 

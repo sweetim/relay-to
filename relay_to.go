@@ -1,4 +1,4 @@
-package ephemeralentry
+package relayto
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -40,6 +41,16 @@ func loadParametersFromEnv() Parameters {
 	}
 }
 
+type Entry struct {
+	Content   string `json:"content"`
+	Timestamp uint64 `json:"timestamp"`
+}
+
+type EntryResult struct {
+	Ok     bool   `json:"ok"`
+	Result string `json:"result"`
+}
+
 func insertEntry(entry *Entry) (*mongo.InsertOneResult, error) {
 	parameters := loadParametersFromEnv()
 
@@ -65,19 +76,11 @@ func insertEntry(entry *Entry) (*mongo.InsertOneResult, error) {
 		InsertOne(context.TODO(), entry)
 }
 
-type Entry struct {
-	Content string `json:"content"`
-}
-
-type EntryResult struct {
-	Ok     bool   `json:"ok"`
-	Result string `json:"result"`
-}
-
-// HelloHTTP is a HTTP cloud function
-func HelloHTTP(w http.ResponseWriter, r *http.Request) {
+// RelayToHTTP is a HTTP cloud function
+func RelayToHTTP(w http.ResponseWriter, r *http.Request) {
 	var entry Entry
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
+		log.Println(err)
 		json.NewEncoder(w).Encode(EntryResult{
 			Ok:     false,
 			Result: "Failed to decode body",
@@ -98,6 +101,6 @@ func HelloHTTP(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(EntryResult{
 		Ok:     true,
-		Result: result.InsertedID.(string),
+		Result: fmt.Sprintf("%v", result.InsertedID.(primitive.ObjectID).Hex()),
 	})
 }

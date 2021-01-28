@@ -20,11 +20,3 @@ jobs:
 
     - name: Build
       run: go build -v ./...
- 
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-    - uses: actions/checkout@v2
-    - name: Deploy to Google cloud functions
-      run: "${GITHUB_WORKSPACE}/scripts/deploy.sh"

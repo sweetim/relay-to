@@ -27,4 +27,4 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Deploy to Google cloud functions
-      run: "${GITHUB_WORKSPACE}/.github/script.sh"
+      run: "${GITHUB_WORKSPACE}/scripts/deploy.sh"
